@@ -67,3 +67,20 @@ CREATE TABLE notes (
 
 ALTER TABLE notes ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "public_notes" ON notes FOR ALL USING (true) WITH CHECK (true);
+
+-- Folders system
+CREATE TABLE IF NOT EXISTS folders (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL,
+  item_type TEXT NOT NULL CHECK (item_type IN ('flashcards', 'mcq', 'notes')),
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE decks ADD COLUMN IF NOT EXISTS folder_id UUID REFERENCES folders(id) ON DELETE SET NULL;
+ALTER TABLE mcq_decks ADD COLUMN IF NOT EXISTS folder_id UUID REFERENCES folders(id) ON DELETE SET NULL;
+ALTER TABLE notes ADD COLUMN IF NOT EXISTS folder_id UUID REFERENCES folders(id) ON DELETE SET NULL;
+ALTER TABLE notes ADD COLUMN IF NOT EXISTS annotations TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE folders ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public_folders" ON folders FOR ALL USING (true) WITH CHECK (true);

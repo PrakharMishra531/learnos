@@ -24,6 +24,7 @@ export const supabase = createClient(
 export interface Deck {
   id: string;
   name: string;
+  folder_id: string | null;
   created_at: string;
   updated_at: string;
 }

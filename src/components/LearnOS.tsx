@@ -125,6 +125,15 @@ function LearnOS() {
           <span className="learnos-nav-arrow">&rarr;</span>
         </motion.button>
       </motion.div>
+
+      <motion.p
+        className="learnos-footer"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 1.4, duration: 0.6 }}
+      >
+        Learn deliberately. Think deeply. Build knowledge that lasts.
+      </motion.p>
     </div>
   );
 }
