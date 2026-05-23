@@ -15,11 +15,16 @@
 </p>
 
 <br />
+<h5>LearnOS - my personal learning system</h5>
+I learn so much through conversations with LLMs. One thread stays dedicated to the topic, another handles doubts, so the main context stays clean and focused.
 
-<p align="center">
-  <em>Prakhar's personal learning engine — flashcards, MCQs, and short notes<br />
-  generated from conversations with an LLM (used to learn the topic), and reviewed with KaTeX math and syntax-highlighted code.</em>
-</p>
+Once a session wraps up, learnOS steps in. It provides the prompt (you copy-paste that), the chat used for learning already has the context, and generates really relevant material. The output is structured JSON — rendered as MCQs, flashcards, or short notes, ready to review as needed.
+
+Learning and review, in one loop.
+
+![screenshot-homepage](ss1.png)
+
+Usage - Just copy the provided prompt, paste in the llm chat used for learning, copy the response json and paste it in learnOS and the generate material, rendered aesthetically - persistent.
 
 ---
 
@@ -31,7 +36,6 @@
 - **Framer Motion** — declarative animations (card flips, reveals)
 - **KaTeX** — server-free LaTeX math rendering
 - **highlight.js** — syntax highlighting for code blocks
-- **react-icons** — Feather icon set
 - **react-router-dom** — client-side routing
 
 ## Quick Start
@@ -76,9 +80,5 @@ src/
     └── FolderRow.tsx      Reusable folder accordion with DnD
 ```
 
-
 ---
-
-<p align="center">
-  <sub>Built by Prakhar · <a href="style.md">Design System</a> · MIT</sub>
-</p>
+- Harness used - opencode + deepseek v4 pro (43M tokens exhausted - 0.6$)
