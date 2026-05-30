@@ -8,7 +8,8 @@
 <p align="center">
   <img src="https://img.shields.io/badge/react-18-blue?style=flat-square&logo=react" />
   <img src="https://img.shields.io/badge/vite-6.x-purple?style=flat-square&logo=vite" />
-  <img src="https://img.shields.io/badge/supabase-postgres?style=flat-square&logo=supabase&color=3ecf8e" />
+  <img src="https://img.shields.io/badge/tauri-native-%2324C8DB?style=flat-square&logo=tauri" />
+  <img src="https://img.shields.io/badge/dexie-indexeddb-%23fd9f2f?style=flat-square&logo=indexeddb" />
   <img src="https://img.shields.io/badge/framer-motion?style=flat-square&logo=framer&color=0055ff" />
   <img src="https://img.shields.io/badge/KaTeX-math-%234d908e?style=flat-square" />
   <img src="https://img.shields.io/badge/theme-dark_academic-%23c9a96e?style=flat-square" />
@@ -28,35 +29,42 @@ Usage - Just copy the provided prompt, paste in the llm chat used for learning, 
 
 ---
 
-## Stack
+## Install (Windows)
 
-- **React 18** + **TypeScript** — SPA with typed safety
-- **Vite** — dev server, HMR, and production bundling
-- **Supabase** — PostgreSQL with Row-Level Security, free tier
-- **Framer Motion** — declarative animations (card flips, reveals)
-- **KaTeX** — server-free LaTeX math rendering
-- **highlight.js** — syntax highlighting for code blocks
-- **react-router-dom** — client-side routing
+Download the latest `.exe` installer from the **[Releases page](../../releases)**. Double-click, done — nothing to configure, no database to set up.
 
-## Quick Start
+The app is a native Tauri binary (~9 MB). Your data lives entirely on your machine in the browser's IndexedDB — no cloud, no accounts, no latency.
+
+---
+
+## Dev Quick Start
 
 ```bash
 # 1. Clone and install
 git clone https://github.com/PrakharMishra531/learnos.git && cd learnos
 npm install
 
-# 2. Set up Supabase
-#    Create a free project at https://supabase.com
-#    Run the SQL from supabase_schema.sql in the SQL Editor
-#    Copy your project URL and anon key
-
-# 3. Create .env file
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=eyJhbGciOi...
-
-# 4. Run locally
+# 2. Run in the browser (Vite dev server)
 npm run dev        # → http://localhost:5173
+
+# 3. Or run as a native desktop window (Tauri)
+npm run tauri:dev  # → opens a native window with hot reload
 ```
+
+---
+
+## Stack
+
+- **React 18** + **TypeScript** — SPA with typed safety
+- **Vite** — dev server, HMR, and production bundling
+- **Tauri v2** — native desktop shell (~9 MB, uses OS WebView2, no Chromium bloat)
+- **Dexie.js** + **IndexedDB** — all data stored locally in the browser, zero config
+- **Framer Motion** — declarative animations (card flips, reveals)
+- **KaTeX** — server-free LaTeX math rendering
+- **highlight.js** — syntax highlighting for code blocks
+- **react-router-dom** — client-side routing
+
+---
 
 ## Project Structure
 
@@ -66,19 +74,30 @@ src/
 ├── App.tsx               Router (/, /flashcards, /mcq, /notes, ...)
 ├── index.css             All styles (1750 lines, single file)
 ├── lib/
-│   ├── supabase.ts       Supabase client init
-│   ├── markdown.ts       Markdown renderer (marked + KaTeX + hljs)
+│   ├── db.ts             Dexie.js IndexedDB layer (decks, cards, mcq, notes, folders)
+│   ├── markdown.ts       Markdown renderer (react-markdown + KaTeX + hljs)
 │   └── jsonHelper.ts     JSON sanitizer (state machine)
 └── components/
-    ├── HomePage.tsx       LearnOS landing with nav cards
+    ├── LearnOS.tsx        Landing page with nav cards
     ├── FlashcardsPage.tsx Flashcard import + deck list + folders
     ├── DeckViewer.tsx     Card-by-card viewer with flip + nav
     ├── MCQPage.tsx        MCQ import + quiz list + folders
     ├── MCQViewer.tsx      Question-by-question quiz viewer
     ├── NotesPage.tsx      Notes import + note list + folders
     ├── NotesViewer.tsx    Full note reader with download
-    └── FolderRow.tsx      Reusable folder accordion with DnD
+    ├── Flashcard.tsx      Card flip animation component
+    ├── FolderRow.tsx      Reusable folder accordion with DnD
+    └── MarkdownView.tsx   Markdown/Math/Code renderer
+src-tauri/
+├── tauri.conf.json       Tauri config (window, bundle, CSP)
+├── Cargo.toml            Rust dependencies
+├── src/
+│   ├── main.rs           Native entry point
+│   └── lib.rs            Tauri runtime setup
+├── capabilities/         Permissions manifest
+└── icons/                App icons
 ```
 
 ---
+
 - Harness used - opencode + deepseek v4 pro (43M tokens exhausted - 0.6$)

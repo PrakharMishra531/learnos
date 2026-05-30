@@ -1,11 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase, isSupabaseConfigured } from "../lib/supabase";
+import { db, makeId, now, type Note, type Folder as DBFolder } from "../lib/db";
 import { tryParseJSON } from "../lib/jsonHelper";
-import FolderRow, { type Folder } from "./FolderRow";
+import FolderRow from "./FolderRow";
 import { FiClipboard, FiDownload, FiTrash2, FiFileText, FiArrowLeft, FiChevronDown, FiChevronRight, FiFolderPlus } from "react-icons/fi";
-
-interface NoteItem { id: string; topic: string; folder_id: string | null; created_at: string; }
 
 const NOTES_PROMPT = `Based on our entire conversation above, create a well-structured set of study notes covering everything we discussed. These notes should be readable independently — someone should understand the topic just from these notes.
 
@@ -35,8 +33,8 @@ const NOTES_EXAMPLE = `{"topic": "BFS & Matrix Traversal Patterns","content": "#
 
 function NotesPage() {
   const navigate = useNavigate();
-  const [notes, setNotes] = useState<NoteItem[]>([]);
-  const [folders, setFolders] = useState<Folder[]>([]);
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [folders, setFolders] = useState<DBFolder[]>([]);
   const [jsonInput, setJsonInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -48,20 +46,21 @@ function NotesPage() {
   const [renameValue, setRenameValue] = useState("");
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
-  const supabaseReady = isSupabaseConfigured();
 
   const fetchData = useCallback(async () => {
-    if (!supabaseReady) { setNotesError("Supabase not configured."); setNotesLoading(false); return; }
     setNotesError("");
-    const [noteRes, folderRes] = await Promise.all([
-      supabase.from("notes").select("id,topic,folder_id,created_at").order("created_at", { ascending: false }),
-      supabase.from("folders").select("*").eq("item_type", "notes").order("position"),
-    ]);
-    if (noteRes.error) setNotesError("Failed: " + noteRes.error.message);
-    else if (noteRes.data) setNotes(noteRes.data);
-    if (folderRes.data) setFolders(folderRes.data);
+    try {
+      const [noteData, folderData] = await Promise.all([
+        db.notes.orderBy("created_at").reverse().toArray(),
+        db.folders.where("item_type").equals("notes").sortBy("position"),
+      ]);
+      setNotes(noteData);
+      setFolders(folderData);
+    } catch (e) {
+      setNotesError("Failed: " + (e as Error).message);
+    }
     setNotesLoading(false);
-  }, [supabaseReady]);
+  }, []);
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const copyText = async (text: string, kind: "prompt" | "example") => { await navigator.clipboard.writeText(text); setCopied(kind); setTimeout(() => setCopied(null), 2000); };
@@ -73,22 +72,35 @@ function NotesPage() {
     const parsed = result.data as { topic?: string; content?: string };
     if (!parsed.topic || !parsed.content) { setError("Need topic + content."); return; }
     setLoading(true);
-    const { error: err } = await supabase.from("notes").insert({ topic: parsed.topic, content: parsed.content });
-    if (err) setError("Failed: " + err.message); else { setJsonInput(""); setImportOpen(false); fetchData(); }
+    try {
+      const ts = now();
+      await db.notes.add({
+        id: makeId(),
+        topic: parsed.topic,
+        content: parsed.content,
+        folder_id: null,
+        annotations: "",
+        created_at: ts,
+        updated_at: ts,
+      });
+      setJsonInput(""); setImportOpen(false); fetchData();
+    } catch (e) {
+      setError("Failed: " + (e as Error).message);
+    }
     setLoading(false);
   };
 
-  const deleteNote = async (id: string, e: React.MouseEvent) => { e.stopPropagation(); await supabase.from("notes").delete().eq("id", id); setNotes((p) => p.filter((n) => n.id !== id)); };
-  const startRename = (n: NoteItem, e: React.MouseEvent) => { e.stopPropagation(); setRenaming(n.id); setRenameValue(n.topic); };
-  const commitRename = async (id: string) => { if (renameValue.trim()) { await supabase.from("notes").update({ topic: renameValue.trim() }).eq("id", id); setNotes((p) => p.map((n) => (n.id === id ? { ...n, topic: renameValue.trim() } : n))); } setRenaming(null); };
-  const moveToFolder = async (nid: string, fid: string | null) => { await supabase.from("notes").update({ folder_id: fid }).eq("id", nid); setNotes((p) => p.map((n) => (n.id === nid ? { ...n, folder_id: fid } : n))); };
-  const createFolder = async () => { const n = newFolderName.trim(); if (!n) return; const { data } = await supabase.from("folders").insert({ name: n, item_type: "notes", position: folders.length }).select().single(); if (data) { setFolders((p) => [...p, data]); setNewFolderName(""); setNewFolderOpen(false); } };
-  const renameFolder = async (id: string, name: string) => { await supabase.from("folders").update({ name }).eq("id", id); setFolders((p) => p.map((f) => (f.id === id ? { ...f, name } : f))); };
-  const deleteFolder = async (id: string) => { await supabase.from("folders").delete().eq("id", id); setFolders((p) => p.filter((f) => f.id !== id)); setNotes((p) => p.map((n) => (n.folder_id === id ? { ...n, folder_id: null } : n))); };
+  const deleteNote = async (id: string, e: React.MouseEvent) => { e.stopPropagation(); await db.notes.delete(id); setNotes((p) => p.filter((n) => n.id !== id)); };
+  const startRename = (n: Note, e: React.MouseEvent) => { e.stopPropagation(); setRenaming(n.id); setRenameValue(n.topic); };
+  const commitRename = async (id: string) => { if (renameValue.trim()) { await db.notes.update(id, { topic: renameValue.trim(), updated_at: now() }); setNotes((p) => p.map((n) => (n.id === id ? { ...n, topic: renameValue.trim() } : n))); } setRenaming(null); };
+  const moveToFolder = async (nid: string, fid: string | null) => { await db.notes.update(nid, { folder_id: fid, updated_at: now() }); setNotes((p) => p.map((n) => (n.id === nid ? { ...n, folder_id: fid } : n))); };
+  const createFolder = async () => { const n = newFolderName.trim(); if (!n) return; const id = makeId();     const folder: DBFolder = { id, name: n, item_type: "notes", position: folders.length, created_at: now() }; await db.folders.add(folder); setFolders((p) => [...p, folder]); setNewFolderName(""); setNewFolderOpen(false); };
+  const renameFolder = async (id: string, name: string) => { await db.folders.update(id, { name }); setFolders((p) => p.map((f) => (f.id === id ? { ...f, name } : f))); };
+  const deleteFolder = async (id: string) => { await db.folders.delete(id); setFolders((p) => p.filter((f) => f.id !== id)); setNotes((p) => p.map((n) => (n.folder_id === id ? { ...n, folder_id: null } : n))); await db.notes.where("folder_id").equals(id).modify({ folder_id: null }); };
   const removeFromFolder = async (nid: string) => { await moveToFolder(nid, null); };
   const uncategorized = notes.filter((n) => !n.folder_id);
 
-  const renderCard = (n: NoteItem) => (
+  const renderCard = (n: Note) => (
     <div key={n.id} className="deck-card" draggable onDragStart={(e) => { e.dataTransfer.setData("noteId", n.id); e.dataTransfer.effectAllowed = "move"; }}
       onClick={() => navigate(`/note/${n.id}`)}>
       <div className="deck-card-content">

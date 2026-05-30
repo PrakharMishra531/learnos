@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase, isSupabaseConfigured, type Deck } from "../lib/supabase";
+import { db, makeId, now, type Deck, type Folder as DBFolder } from "../lib/db";
 import { tryParseJSON } from "../lib/jsonHelper";
-import FolderRow, { type Folder } from "./FolderRow";
+import FolderRow from "./FolderRow";
 import { FiClipboard, FiDownload, FiTrash2, FiBookOpen, FiArrowLeft, FiChevronDown, FiChevronRight, FiFolderPlus } from "react-icons/fi";
 
 const EXAMPLE_PROMPT = `Based on our conversation above, create 10-15 high-quality flashcards for revision.
@@ -48,7 +48,7 @@ const EXAMPLE_MINIMAL = `{
 function FlashcardsPage() {
   const navigate = useNavigate();
   const [decks, setDecks] = useState<Deck[]>([]);
-  const [folders, setFolders] = useState<Folder[]>([]);
+  const [folders, setFolders] = useState<DBFolder[]>([]);
   const [jsonInput, setJsonInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -61,20 +61,20 @@ function FlashcardsPage() {
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
 
-  const supabaseReady = isSupabaseConfigured();
-
   const fetchData = useCallback(async () => {
-    if (!supabaseReady) { setDecksError("Supabase not configured."); setDecksLoading(false); return; }
     setDecksError("");
-    const [deckRes, folderRes] = await Promise.all([
-      supabase.from("decks").select("*").order("created_at", { ascending: false }),
-      supabase.from("folders").select("*").eq("item_type", "flashcards").order("position"),
-    ]);
-    if (deckRes.error) setDecksError("Failed: " + deckRes.error.message);
-    else if (deckRes.data) setDecks(deckRes.data);
-    if (folderRes.data) setFolders(folderRes.data);
+    try {
+      const [deckData, folderData] = await Promise.all([
+        db.decks.orderBy("created_at").reverse().toArray(),
+        db.folders.where("item_type").equals("flashcards").sortBy("position"),
+      ]);
+      setDecks(deckData);
+      setFolders(folderData);
+    } catch (e) {
+      setDecksError("Failed: " + (e as Error).message);
+    }
     setDecksLoading(false);
-  }, [supabaseReady]);
+  }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -90,37 +90,57 @@ function FlashcardsPage() {
     const parsed = result.data as { deckName?: string; cards?: { front: string; back: string }[] };
     if (!parsed.deckName || !Array.isArray(parsed.cards) || parsed.cards.length === 0) { setError("JSON must have 'deckName' (string) and 'cards' (non-empty array)."); return; }
     setLoading(true);
-    const { data: deckData, error: deckErr } = await supabase.from("decks").insert({ name: parsed.deckName }).select().single();
-    if (deckErr || !deckData) { setError("Failed: " + (deckErr?.message || "unknown")); setLoading(false); return; }
-    const cards = parsed.cards.map((c, i) => ({ deck_id: deckData.id, front: c.front, back: c.back, position: i }));
-    const { error: cardsErr } = await supabase.from("cards").insert(cards);
-    if (cardsErr) setError("Failed: " + cardsErr.message);
-    else { setJsonInput(""); setImportOpen(false); fetchData(); }
+    try {
+      const ts = now();
+      const deckId = makeId();
+      await db.decks.add({ id: deckId, name: parsed.deckName, folder_id: null, created_at: ts, updated_at: ts });
+      const cards = parsed.cards.map((c, i) => ({
+        id: makeId(),
+        deck_id: deckId,
+        front: c.front,
+        back: c.back,
+        position: i,
+        created_at: ts,
+      }));
+      await db.cards.bulkAdd(cards);
+      setJsonInput(""); setImportOpen(false); fetchData();
+    } catch (e) {
+      setError("Failed: " + (e as Error).message);
+    }
     setLoading(false);
   };
 
-  const deleteDeck = async (id: string, e: React.MouseEvent) => { e.stopPropagation(); await supabase.from("decks").delete().eq("id", id); setDecks((p) => p.filter((d) => d.id !== id)); };
+  const deleteDeck = async (id: string, e: React.MouseEvent) => { e.stopPropagation(); await db.decks.delete(id); await db.cards.where("deck_id").equals(id).delete(); setDecks((p) => p.filter((d) => d.id !== id)); };
   const startRename = (d: Deck, e: React.MouseEvent) => { e.stopPropagation(); setRenaming(d.id); setRenameValue(d.name); };
   const commitRename = async (id: string) => {
-    if (renameValue.trim()) { await supabase.from("decks").update({ name: renameValue.trim() }).eq("id", id); setDecks((p) => p.map((d) => (d.id === id ? { ...d, name: renameValue.trim() } : d))); }
+    if (renameValue.trim()) { await db.decks.update(id, { name: renameValue.trim(), updated_at: now() }); setDecks((p) => p.map((d) => (d.id === id ? { ...d, name: renameValue.trim() } : d))); }
     setRenaming(null);
   };
   const moveToFolder = async (deckId: string, folderId: string | null) => {
-    await supabase.from("decks").update({ folder_id: folderId }).eq("id", deckId);
+    await db.decks.update(deckId, { folder_id: folderId, updated_at: now() });
     setDecks((p) => p.map((d) => (d.id === deckId ? { ...d, folder_id: folderId } : d)));
   };
   const createFolder = async () => {
     const name = newFolderName.trim();
     if (!name) return;
     const pos = folders.length;
-    const { data } = await supabase.from("folders").insert({ name, item_type: "flashcards", position: pos }).select().single();
-    if (data) { setFolders((p) => [...p, data]); setNewFolderName(""); setNewFolderOpen(false); }
+    const id = makeId();
+    const folder: DBFolder = { id, name, item_type: "flashcards", position: pos, created_at: now() };
+    await db.folders.add(folder);
+    setFolders((p) => [...p, folder]);
+    setNewFolderName("");
+    setNewFolderOpen(false);
   };
   const renameFolder = async (id: string, name: string) => {
-    await supabase.from("folders").update({ name }).eq("id", id);
+    await db.folders.update(id, { name });
     setFolders((p) => p.map((f) => (f.id === id ? { ...f, name } : f)));
   };
-  const deleteFolder = async (id: string) => { await supabase.from("folders").delete().eq("id", id); setFolders((p) => p.filter((f) => f.id !== id)); setDecks((p) => p.map((d) => (d.folder_id === id ? { ...d, folder_id: null } : d))); };
+  const deleteFolder = async (id: string) => {
+    await db.folders.delete(id);
+    setFolders((p) => p.filter((f) => f.id !== id));
+    setDecks((p) => p.map((d) => (d.folder_id === id ? { ...d, folder_id: null } : d)));
+    await db.decks.where("folder_id").equals(id).modify({ folder_id: null });
+  };
   const removeFromFolder = async (deckId: string) => { await moveToFolder(deckId, null); };
 
   const uncategorized = decks.filter((d) => !d.folder_id);

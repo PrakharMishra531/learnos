@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { supabase, type Card } from "../lib/supabase";
+import { db, type Card } from "../lib/db";
 import Flashcard from "./Flashcard";
 import { FiArrowLeft, FiArrowRight, FiShuffle, FiGrid, FiChevronLeft } from "react-icons/fi";
 
@@ -18,21 +18,15 @@ function DeckViewer() {
   useEffect(() => {
     if (!deckId) return;
     const fetchDeck = async () => {
-      const { data: deckData } = await supabase
-        .from("decks")
-        .select("name")
-        .eq("id", deckId)
-        .single();
-
+      const deckData = await db.decks.get(deckId);
       if (deckData) setDeckName(deckData.name);
 
-      const { data: cardsData } = await supabase
-        .from("cards")
-        .select("*")
-        .eq("deck_id", deckId)
-        .order("position", { ascending: true });
+      const cardsData = await db.cards
+        .where("deck_id")
+        .equals(deckId)
+        .sortBy("position");
 
-      if (cardsData) setCards(cardsData);
+      setCards(cardsData);
       setLoading(false);
     };
     fetchDeck();

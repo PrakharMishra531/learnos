@@ -1,18 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { supabase } from "../lib/supabase";
+import { db, type MCQQuestion } from "../lib/db";
 import MarkdownView from "./MarkdownView";
 import { FiArrowLeft, FiArrowRight, FiCheck, FiX, FiChevronLeft } from "react-icons/fi";
-
-interface MCQQuestion {
-  id: string;
-  deck_id: string;
-  question: string;
-  options: string[];
-  correct_index: number;
-  explanation: string;
-  position: number;
-}
 
 const optionLabels = ["A", "B", "C", "D"];
 
@@ -29,10 +19,10 @@ function MCQViewer() {
   useEffect(() => {
     if (!deckId) return;
     const fetchDeck = async () => {
-      const { data: deckData } = await supabase.from("mcq_decks").select("name").eq("id", deckId).single();
+      const deckData = await db.mcq_decks.get(deckId);
       if (deckData) setDeckName(deckData.name);
-      const { data: qData } = await supabase.from("mcq_questions").select("*").eq("deck_id", deckId).order("position");
-      if (qData) setQuestions(qData);
+      const qData = await db.mcq_questions.where("deck_id").equals(deckId).sortBy("position");
+      setQuestions(qData);
       setLoading(false);
     };
     fetchDeck();

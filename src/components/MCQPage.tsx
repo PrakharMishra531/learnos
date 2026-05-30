@@ -1,11 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase, isSupabaseConfigured } from "../lib/supabase";
+import { db, makeId, now, type MCQDeck, type Folder as DBFolder } from "../lib/db";
 import { tryParseJSON } from "../lib/jsonHelper";
-import FolderRow, { type Folder } from "./FolderRow";
+import FolderRow from "./FolderRow";
 import { FiClipboard, FiDownload, FiTrash2, FiGrid, FiArrowLeft, FiChevronDown, FiChevronRight, FiFolderPlus } from "react-icons/fi";
-
-interface MCQDeckItem { id: string; name: string; folder_id: string | null; created_at: string; }
 
 const MCQ_PROMPT = `Based on our conversation above, create 15-20 high-quality conceptual MCQs that deepen understanding and fill knowledge gaps. These are for LEARNING, not just testing — each question should teach something.
 
@@ -49,8 +47,8 @@ const MCQ_EXAMPLE = `{
 
 function MCQPage() {
   const navigate = useNavigate();
-  const [decks, setDecks] = useState<MCQDeckItem[]>([]);
-  const [folders, setFolders] = useState<Folder[]>([]);
+  const [decks, setDecks] = useState<MCQDeck[]>([]);
+  const [folders, setFolders] = useState<DBFolder[]>([]);
   const [jsonInput, setJsonInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -62,20 +60,21 @@ function MCQPage() {
   const [renameValue, setRenameValue] = useState("");
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
-  const supabaseReady = isSupabaseConfigured();
 
   const fetchData = useCallback(async () => {
-    if (!supabaseReady) { setDecksError("Supabase not configured."); setDecksLoading(false); return; }
     setDecksError("");
-    const [deckRes, folderRes] = await Promise.all([
-      supabase.from("mcq_decks").select("*").order("created_at", { ascending: false }),
-      supabase.from("folders").select("*").eq("item_type", "mcq").order("position"),
-    ]);
-    if (deckRes.error) setDecksError("Failed: " + deckRes.error.message);
-    else if (deckRes.data) setDecks(deckRes.data);
-    if (folderRes.data) setFolders(folderRes.data);
+    try {
+      const [deckData, folderData] = await Promise.all([
+        db.mcq_decks.orderBy("created_at").reverse().toArray(),
+        db.folders.where("item_type").equals("mcq").sortBy("position"),
+      ]);
+      setDecks(deckData);
+      setFolders(folderData);
+    } catch (e) {
+      setDecksError("Failed: " + (e as Error).message);
+    }
     setDecksLoading(false);
-  }, [supabaseReady]);
+  }, []);
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const copyText = async (text: string, kind: "prompt" | "example") => { await navigator.clipboard.writeText(text); setCopied(kind); setTimeout(() => setCopied(null), 2000); };
@@ -88,25 +87,39 @@ function MCQPage() {
     if (!parsed.deckName || !Array.isArray(parsed.questions) || parsed.questions.length === 0) { setError("Need deckName + questions array."); return; }
     for (const q of parsed.questions) { if (!Array.isArray(q.options) || q.options.length !== 4 || typeof q.correctIndex !== "number" || q.correctIndex < 0 || q.correctIndex > 3) { setError("Each question needs 4 options and correctIndex (0-3)."); return; } }
     setLoading(true);
-    const { data: dd, error: de } = await supabase.from("mcq_decks").insert({ name: parsed.deckName }).select().single();
-    if (de || !dd) { setError("Failed: " + (de?.message || "unknown")); setLoading(false); return; }
-    const qs = parsed.questions.map((q, i) => ({ deck_id: dd.id, question: q.question, options: q.options, correct_index: q.correctIndex, explanation: q.explanation || "", position: i }));
-    const { error: qe } = await supabase.from("mcq_questions").insert(qs);
-    if (qe) setError("Failed: " + qe.message); else { setJsonInput(""); setImportOpen(false); fetchData(); }
+    try {
+      const ts = now();
+      const deckId = makeId();
+      await db.mcq_decks.add({ id: deckId, name: parsed.deckName, folder_id: null, created_at: ts, updated_at: ts });
+      const qs = parsed.questions.map((q, i) => ({
+        id: makeId(),
+        deck_id: deckId,
+        question: q.question,
+        options: q.options,
+        correct_index: q.correctIndex,
+        explanation: q.explanation || "",
+        position: i,
+        created_at: ts,
+      }));
+      await db.mcq_questions.bulkAdd(qs);
+      setJsonInput(""); setImportOpen(false); fetchData();
+    } catch (e) {
+      setError("Failed: " + (e as Error).message);
+    }
     setLoading(false);
   };
 
-  const deleteDeck = async (id: string, e: React.MouseEvent) => { e.stopPropagation(); await supabase.from("mcq_decks").delete().eq("id", id); setDecks((p) => p.filter((d) => d.id !== id)); };
-  const startRename = (d: MCQDeckItem, e: React.MouseEvent) => { e.stopPropagation(); setRenaming(d.id); setRenameValue(d.name); };
-  const commitRename = async (id: string) => { if (renameValue.trim()) { await supabase.from("mcq_decks").update({ name: renameValue.trim() }).eq("id", id); setDecks((p) => p.map((d) => (d.id === id ? { ...d, name: renameValue.trim() } : d))); } setRenaming(null); };
-  const moveToFolder = async (did: string, fid: string | null) => { await supabase.from("mcq_decks").update({ folder_id: fid }).eq("id", did); setDecks((p) => p.map((d) => (d.id === did ? { ...d, folder_id: fid } : d))); };
-  const createFolder = async () => { const n = newFolderName.trim(); if (!n) return; const { data } = await supabase.from("folders").insert({ name: n, item_type: "mcq", position: folders.length }).select().single(); if (data) { setFolders((p) => [...p, data]); setNewFolderName(""); setNewFolderOpen(false); } };
-  const renameFolder = async (id: string, name: string) => { await supabase.from("folders").update({ name }).eq("id", id); setFolders((p) => p.map((f) => (f.id === id ? { ...f, name } : f))); };
-  const deleteFolder = async (id: string) => { await supabase.from("folders").delete().eq("id", id); setFolders((p) => p.filter((f) => f.id !== id)); setDecks((p) => p.map((d) => (d.folder_id === id ? { ...d, folder_id: null } : d))); };
+  const deleteDeck = async (id: string, e: React.MouseEvent) => { e.stopPropagation(); await db.mcq_decks.delete(id); await db.mcq_questions.where("deck_id").equals(id).delete(); setDecks((p) => p.filter((d) => d.id !== id)); };
+  const startRename = (d: MCQDeck, e: React.MouseEvent) => { e.stopPropagation(); setRenaming(d.id); setRenameValue(d.name); };
+  const commitRename = async (id: string) => { if (renameValue.trim()) { await db.mcq_decks.update(id, { name: renameValue.trim(), updated_at: now() }); setDecks((p) => p.map((d) => (d.id === id ? { ...d, name: renameValue.trim() } : d))); } setRenaming(null); };
+  const moveToFolder = async (did: string, fid: string | null) => { await db.mcq_decks.update(did, { folder_id: fid, updated_at: now() }); setDecks((p) => p.map((d) => (d.id === did ? { ...d, folder_id: fid } : d))); };
+  const createFolder = async () => { const n = newFolderName.trim(); if (!n) return; const id = makeId();     const folder: DBFolder = { id, name: n, item_type: "mcq", position: folders.length, created_at: now() }; await db.folders.add(folder); setFolders((p) => [...p, folder]); setNewFolderName(""); setNewFolderOpen(false); };
+  const renameFolder = async (id: string, name: string) => { await db.folders.update(id, { name }); setFolders((p) => p.map((f) => (f.id === id ? { ...f, name } : f))); };
+  const deleteFolder = async (id: string) => { await db.folders.delete(id); setFolders((p) => p.filter((f) => f.id !== id)); setDecks((p) => p.map((d) => (d.folder_id === id ? { ...d, folder_id: null } : d))); await db.mcq_decks.where("folder_id").equals(id).modify({ folder_id: null }); };
   const removeFromFolder = async (did: string) => { await moveToFolder(did, null); };
   const uncategorized = decks.filter((d) => !d.folder_id);
 
-  const renderCard = (d: MCQDeckItem) => (
+  const renderCard = (d: MCQDeck) => (
     <div key={d.id} className="deck-card" draggable onDragStart={(e) => { e.dataTransfer.setData("mcqId", d.id); e.dataTransfer.effectAllowed = "move"; }}
       onClick={() => navigate(`/mcq/${d.id}`)}>
       <div className="deck-card-content">

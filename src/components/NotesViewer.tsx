@@ -1,15 +1,8 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { supabase } from "../lib/supabase";
+import { db, type Note } from "../lib/db";
 import MarkdownView from "./MarkdownView";
 import { FiChevronLeft, FiDownload } from "react-icons/fi";
-
-interface Note {
-  id: string;
-  topic: string;
-  content: string;
-  created_at: string;
-}
 
 function NotesViewer() {
   const { noteId } = useParams<{ noteId: string }>();
@@ -19,7 +12,7 @@ function NotesViewer() {
 
   useEffect(() => {
     if (!noteId) return;
-    supabase.from("notes").select("*").eq("id", noteId).single().then(({ data }) => {
+    db.notes.get(noteId).then((data) => {
       if (data) setNote(data);
       setLoading(false);
     });
