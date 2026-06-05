@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { db, makeId, now, type Note, type Folder as DBFolder } from "../lib/db";
 import { tryParseJSON } from "../lib/jsonHelper";
 import FolderRow from "./FolderRow";
-import { FiClipboard, FiDownload, FiTrash2, FiFileText, FiArrowLeft, FiChevronDown, FiChevronRight, FiFolderPlus } from "react-icons/fi";
+import { saveBackup, exportNotes } from "../lib/backup";
+import { FiClipboard, FiDownload, FiTrash2, FiFileText, FiArrowLeft, FiChevronDown, FiChevronRight, FiFolderPlus, FiUpload, FiX } from "react-icons/fi";
 
 const NOTES_PROMPT = `Based on our entire conversation above, create a well-structured set of study notes covering everything we discussed. These notes should be readable independently — someone should understand the topic just from these notes.
 
@@ -46,6 +47,8 @@ function NotesPage() {
   const [renameValue, setRenameValue] = useState("");
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
+  const [exportMsg, setExportMsg] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   const fetchData = useCallback(async () => {
     setNotesError("");
@@ -83,6 +86,7 @@ function NotesPage() {
         created_at: ts,
         updated_at: ts,
       });
+      saveBackup(jsonInput, "notes", parsed.topic);
       setJsonInput(""); setImportOpen(false); fetchData();
     } catch (e) {
       setError("Failed: " + (e as Error).message);
@@ -98,10 +102,31 @@ function NotesPage() {
   const renameFolder = async (id: string, name: string) => { await db.folders.update(id, { name }); setFolders((p) => p.map((f) => (f.id === id ? { ...f, name } : f))); };
   const deleteFolder = async (id: string) => { await db.folders.delete(id); setFolders((p) => p.filter((f) => f.id !== id)); setNotes((p) => p.map((n) => (n.folder_id === id ? { ...n, folder_id: null } : n))); await db.notes.where("folder_id").equals(id).modify({ folder_id: null }); };
   const removeFromFolder = async (nid: string) => { await moveToFolder(nid, null); };
+
+  const handleAddToFolder = (folderId: string, itemName: string): boolean => {
+    const item = notes.find((n) => n.topic.toLowerCase() === itemName.toLowerCase() || n.topic.toLowerCase().includes(itemName.toLowerCase()));
+    if (item && !item.folder_id) {
+      moveToFolder(item.id, folderId);
+      return true;
+    }
+    return false;
+  };
+
+  const handleExport = async () => {
+    setExportMsg("");
+    setExporting(true);
+    try {
+      const result = await exportNotes();
+      setExportMsg(`Exported ${result.count} note(s) to ${result.path}`);
+    } catch (e) {
+      setExportMsg("Export failed: " + (e as Error).message);
+    }
+    setExporting(false);
+  };
   const uncategorized = notes.filter((n) => !n.folder_id);
 
-  const renderCard = (n: Note) => (
-    <div key={n.id} className="deck-card" draggable onDragStart={(e) => { e.dataTransfer.setData("noteId", n.id); e.dataTransfer.effectAllowed = "move"; }}
+  const renderCard = (n: Note, inFolder = false) => (
+    <div key={n.id} className="deck-card"
       onClick={() => navigate(`/note/${n.id}`)}>
       <div className="deck-card-content">
         <div className="deck-card-icon"><FiFileText /></div>
@@ -111,6 +136,11 @@ function NotesPage() {
           <h3 className="deck-card-name" onClick={(e) => startRename(n, e)} title="Click to rename">{n.topic}</h3>
         )}
       </div>
+      {inFolder && (
+        <button className="folder-item-remove" onClick={(e) => { e.stopPropagation(); removeFromFolder(n.id); }} title="Remove from folder">
+          <FiX size={14} />
+        </button>
+      )}
       <button className="btn-danger deck-delete-btn" onClick={(e) => deleteNote(n.id, e)} title="Delete"><FiTrash2 /></button>
     </div>
   );
@@ -122,12 +152,16 @@ function NotesPage() {
         <h1 className="flashcards-heading">Notes</h1>
         <div style={{ width: 100 }} />
       </div>
-      <section className="flashcards-decks-section"
-        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
-        onDrop={(e) => { e.preventDefault(); const id = e.dataTransfer.getData("noteId"); if (id) removeFromFolder(id); }}>
+      <section className="flashcards-decks-section">
         <div className="section-head">
           <h2>Your Notes</h2>
-          <p className={`section-desc ${notesError ? "section-desc-error" : ""}`}>{notesError ? notesError : notesLoading ? "Loading..." : `${notes.length} note${notes.length !== 1 ? "s" : ""}`}</p>
+          <div className="section-head-actions">
+            {exportMsg && <span className="export-msg">{exportMsg}</span>}
+            <button className="btn-ghost" onClick={handleExport} disabled={exporting} title="Export all notes as JSON">
+              <FiUpload /> {exporting ? "Exporting..." : "Export All"}
+            </button>
+            <p className={`section-desc ${notesError ? "section-desc-error" : ""}`}>{notesError ? notesError : notesLoading ? "Loading..." : `${notes.length} note${notes.length !== 1 ? "s" : ""}`}</p>
+          </div>
         </div>
         <div className="deck-grid" style={{ marginBottom: uncategorized.length > 0 ? "1rem" : 0 }}>
           {uncategorized.map((n) => renderCard(n))}
@@ -137,10 +171,10 @@ function NotesPage() {
           return (
             <FolderRow key={f.id} folder={f} itemCount={items.length} defaultOpen={items.length > 0}
               onRename={renameFolder} onDelete={deleteFolder}
-              onDropItem={(fid, dt) => { const nid = dt.getData("noteId"); if (nid) moveToFolder(nid, fid); }}>
+              onAddItem={handleAddToFolder}>
               <div className="deck-grid deck-grid-compact">
-                {items.map((n) => renderCard(n))}
-                {items.length === 0 && <p className="folder-empty-hint">Drop notes here</p>}
+                {items.map((n) => renderCard(n, true))}
+                {items.length === 0 && <p className="folder-empty-hint">No notes yet &mdash; click + to add</p>}
               </div>
             </FolderRow>
           );

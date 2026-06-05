@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { db, makeId, now, type Deck, type Folder as DBFolder } from "../lib/db";
 import { tryParseJSON } from "../lib/jsonHelper";
 import FolderRow from "./FolderRow";
-import { FiClipboard, FiDownload, FiTrash2, FiBookOpen, FiArrowLeft, FiChevronDown, FiChevronRight, FiFolderPlus } from "react-icons/fi";
+import { saveBackup, exportFlashcards } from "../lib/backup";
+import { FiClipboard, FiDownload, FiTrash2, FiBookOpen, FiArrowLeft, FiChevronDown, FiChevronRight, FiFolderPlus, FiUpload, FiX } from "react-icons/fi";
 
 const EXAMPLE_PROMPT = `Based on our conversation above, create 10-15 high-quality flashcards for revision.
 Use this EXACT JSON format — no extra text, no markdown wrapper, just valid JSON:
@@ -60,6 +61,8 @@ function FlashcardsPage() {
   const [renameValue, setRenameValue] = useState("");
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
+  const [exportMsg, setExportMsg] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   const fetchData = useCallback(async () => {
     setDecksError("");
@@ -103,6 +106,7 @@ function FlashcardsPage() {
         created_at: ts,
       }));
       await db.cards.bulkAdd(cards);
+      saveBackup(jsonInput, "flashcards", parsed.deckName);
       setJsonInput(""); setImportOpen(false); fetchData();
     } catch (e) {
       setError("Failed: " + (e as Error).message);
@@ -143,12 +147,31 @@ function FlashcardsPage() {
   };
   const removeFromFolder = async (deckId: string) => { await moveToFolder(deckId, null); };
 
+  const handleAddToFolder = (folderId: string, itemName: string): boolean => {
+    const item = decks.find((d) => d.name.toLowerCase() === itemName.toLowerCase() || d.name.toLowerCase().includes(itemName.toLowerCase()));
+    if (item && !item.folder_id) {
+      moveToFolder(item.id, folderId);
+      return true;
+    }
+    return false;
+  };
+
+  const handleExport = async () => {
+    setExportMsg("");
+    setExporting(true);
+    try {
+      const result = await exportFlashcards();
+      setExportMsg(`Exported ${result.count} deck(s) to ${result.path}`);
+    } catch (e) {
+      setExportMsg("Export failed: " + (e as Error).message);
+    }
+    setExporting(false);
+  };
+
   const uncategorized = decks.filter((d) => !d.folder_id);
 
-  const renderDeckCard = (deck: Deck, idx: number) => (
+  const renderDeckCard = (deck: Deck, idx: number, inFolder = false) => (
     <div key={deck.id} className="deck-card"
-      draggable
-      onDragStart={(e) => { e.dataTransfer.setData("deckId", deck.id); e.dataTransfer.setData("fromFolder", deck.folder_id || ""); e.dataTransfer.effectAllowed = "move"; }}
       onClick={() => navigate(`/deck/${deck.id}`)}
       style={{ animationDelay: `${idx * 0.03}s` }}>
       <div className="deck-card-content">
@@ -159,6 +182,11 @@ function FlashcardsPage() {
           <h3 className="deck-card-name" onClick={(e) => startRename(deck, e)} title="Click to rename">{deck.name}</h3>
         )}
       </div>
+      {inFolder && (
+        <button className="folder-item-remove" onClick={(e) => { e.stopPropagation(); removeFromFolder(deck.id); }} title="Remove from folder">
+          <FiX size={14} />
+        </button>
+      )}
       <button className="btn-danger deck-delete-btn" onClick={(e) => deleteDeck(deck.id, e)} title="Delete"><FiTrash2 /></button>
     </div>
   );
@@ -171,14 +199,18 @@ function FlashcardsPage() {
         <div style={{ width: 100 }} />
       </div>
 
-      <section className="flashcards-decks-section"
-        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
-        onDrop={(e) => { e.preventDefault(); const id = e.dataTransfer.getData("deckId"); if (id) removeFromFolder(id); }}>
+      <section className="flashcards-decks-section">
         <div className="section-head">
           <h2>Your Decks</h2>
-          <p className={`section-desc ${decksError ? "section-desc-error" : ""}`}>
-            {decksError ? decksError : decksLoading ? "Loading..." : `${decks.length} deck${decks.length !== 1 ? "s" : ""}`}
-          </p>
+          <div className="section-head-actions">
+            {exportMsg && <span className="export-msg">{exportMsg}</span>}
+            <button className="btn-ghost" onClick={handleExport} disabled={exporting} title="Export all flashcards as JSON">
+              <FiUpload /> {exporting ? "Exporting..." : "Export All"}
+            </button>
+            <p className={`section-desc ${decksError ? "section-desc-error" : ""}`}>
+              {decksError ? decksError : decksLoading ? "Loading..." : `${decks.length} deck${decks.length !== 1 ? "s" : ""}`}
+            </p>
+          </div>
         </div>
 
         <div className="deck-grid" style={{ marginBottom: uncategorized.length > 0 ? "1rem" : 0 }}>
@@ -195,21 +227,11 @@ function FlashcardsPage() {
               defaultOpen={items.length > 0}
               onRename={renameFolder}
               onDelete={deleteFolder}
-              onDropItem={(folderId, dt) => { const did = dt.getData("deckId"); if (did) moveToFolder(did, folderId); }}
+              onAddItem={handleAddToFolder}
             >
               <div className="deck-grid deck-grid-compact">
-                {items.map((deck) => (
-                  <div key={deck.id} className="deck-card"
-                    draggable
-                    onDragStart={(e) => { e.dataTransfer.setData("deckId", deck.id); e.dataTransfer.setData("fromFolder", deck.folder_id || ""); e.dataTransfer.effectAllowed = "move"; e.stopPropagation(); }}
-                    onClick={() => navigate(`/deck/${deck.id}`)}>
-                    <div className="deck-card-content">
-                      <div className="deck-card-icon"><FiBookOpen /></div>
-                      <h3 className="deck-card-name">{deck.name}</h3>
-                    </div>
-                  </div>
-                ))}
-                {items.length === 0 && <p className="folder-empty-hint">Drop decks here</p>}
+                {items.map((deck, idx) => renderDeckCard(deck, idx, true))}
+                {items.length === 0 && <p className="folder-empty-hint">No decks yet &mdash; click + to add</p>}
               </div>
             </FolderRow>
           );

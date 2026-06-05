@@ -1,7 +1,9 @@
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import type { Variants } from "framer-motion";
-import { FiLayers, FiGrid, FiFileText } from "react-icons/fi";
+import { FiLayers, FiGrid, FiFileText, FiUpload } from "react-icons/fi";
+import { useState } from "react";
+import { exportAll } from "../lib/backup";
 
 const easeOut = [0.22, 1, 0.36, 1] as const;
 
@@ -19,6 +21,20 @@ const titleChars = "LearnOS".split("");
 
 function LearnOS() {
   const navigate = useNavigate();
+  const [exportMsg, setExportMsg] = useState("");
+  const [exporting, setExporting] = useState(false);
+
+  const handleExportAll = async () => {
+    setExportMsg("");
+    setExporting(true);
+    try {
+      const result = await exportAll();
+      setExportMsg(`Exported ${result.count} item(s) to ${result.path}`);
+    } catch (e) {
+      setExportMsg("Export failed: " + (e as Error).message);
+    }
+    setExporting(false);
+  };
 
   return (
     <div className="learnos">
@@ -134,6 +150,23 @@ function LearnOS() {
       >
         Learn deliberately. Think deeply. Build knowledge that lasts.
       </motion.p>
+
+      <motion.div
+        className="learnos-export"
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 1.6, duration: 0.6 }}
+      >
+        <button
+          className="btn-primary"
+          onClick={handleExportAll}
+          disabled={exporting}
+          title="Export all flashcards, MCQs, and notes as JSON files"
+        >
+          <FiUpload /> {exporting ? "Exporting..." : "Export All Data"}
+        </button>
+        {exportMsg && <p className="learnos-export-msg">{exportMsg}</p>}
+      </motion.div>
     </div>
   );
 }

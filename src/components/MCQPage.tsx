@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { db, makeId, now, type MCQDeck, type Folder as DBFolder } from "../lib/db";
 import { tryParseJSON } from "../lib/jsonHelper";
 import FolderRow from "./FolderRow";
-import { FiClipboard, FiDownload, FiTrash2, FiGrid, FiArrowLeft, FiChevronDown, FiChevronRight, FiFolderPlus } from "react-icons/fi";
+import { saveBackup, exportMCQs } from "../lib/backup";
+import { FiClipboard, FiDownload, FiTrash2, FiGrid, FiArrowLeft, FiChevronDown, FiChevronRight, FiFolderPlus, FiUpload, FiX } from "react-icons/fi";
 
 const MCQ_PROMPT = `Based on our conversation above, create 15-20 high-quality conceptual MCQs that deepen understanding and fill knowledge gaps. These are for LEARNING, not just testing — each question should teach something.
 
@@ -60,6 +61,8 @@ function MCQPage() {
   const [renameValue, setRenameValue] = useState("");
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
+  const [exportMsg, setExportMsg] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   const fetchData = useCallback(async () => {
     setDecksError("");
@@ -102,6 +105,7 @@ function MCQPage() {
         created_at: ts,
       }));
       await db.mcq_questions.bulkAdd(qs);
+      saveBackup(jsonInput, "mcq", parsed.deckName);
       setJsonInput(""); setImportOpen(false); fetchData();
     } catch (e) {
       setError("Failed: " + (e as Error).message);
@@ -117,10 +121,31 @@ function MCQPage() {
   const renameFolder = async (id: string, name: string) => { await db.folders.update(id, { name }); setFolders((p) => p.map((f) => (f.id === id ? { ...f, name } : f))); };
   const deleteFolder = async (id: string) => { await db.folders.delete(id); setFolders((p) => p.filter((f) => f.id !== id)); setDecks((p) => p.map((d) => (d.folder_id === id ? { ...d, folder_id: null } : d))); await db.mcq_decks.where("folder_id").equals(id).modify({ folder_id: null }); };
   const removeFromFolder = async (did: string) => { await moveToFolder(did, null); };
+
+  const handleAddToFolder = (folderId: string, itemName: string): boolean => {
+    const item = decks.find((d) => d.name.toLowerCase() === itemName.toLowerCase() || d.name.toLowerCase().includes(itemName.toLowerCase()));
+    if (item && !item.folder_id) {
+      moveToFolder(item.id, folderId);
+      return true;
+    }
+    return false;
+  };
+
+  const handleExport = async () => {
+    setExportMsg("");
+    setExporting(true);
+    try {
+      const result = await exportMCQs();
+      setExportMsg(`Exported ${result.count} deck(s) to ${result.path}`);
+    } catch (e) {
+      setExportMsg("Export failed: " + (e as Error).message);
+    }
+    setExporting(false);
+  };
   const uncategorized = decks.filter((d) => !d.folder_id);
 
-  const renderCard = (d: MCQDeck) => (
-    <div key={d.id} className="deck-card" draggable onDragStart={(e) => { e.dataTransfer.setData("mcqId", d.id); e.dataTransfer.effectAllowed = "move"; }}
+  const renderCard = (d: MCQDeck, inFolder = false) => (
+    <div key={d.id} className="deck-card"
       onClick={() => navigate(`/mcq/${d.id}`)}>
       <div className="deck-card-content">
         <div className="deck-card-icon"><FiGrid /></div>
@@ -130,6 +155,11 @@ function MCQPage() {
           <h3 className="deck-card-name" onClick={(e) => startRename(d, e)} title="Click to rename">{d.name}</h3>
         )}
       </div>
+      {inFolder && (
+        <button className="folder-item-remove" onClick={(e) => { e.stopPropagation(); removeFromFolder(d.id); }} title="Remove from folder">
+          <FiX size={14} />
+        </button>
+      )}
       <button className="btn-danger deck-delete-btn" onClick={(e) => deleteDeck(d.id, e)} title="Delete"><FiTrash2 /></button>
     </div>
   );
@@ -141,12 +171,16 @@ function MCQPage() {
         <h1 className="flashcards-heading">MCQ Practice</h1>
         <div style={{ width: 100 }} />
       </div>
-      <section className="flashcards-decks-section"
-        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
-        onDrop={(e) => { e.preventDefault(); const id = e.dataTransfer.getData("mcqId"); if (id) removeFromFolder(id); }}>
+      <section className="flashcards-decks-section">
         <div className="section-head">
           <h2>Your MCQ Decks</h2>
-          <p className={`section-desc ${decksError ? "section-desc-error" : ""}`}>{decksError ? decksError : decksLoading ? "Loading..." : `${decks.length} deck${decks.length !== 1 ? "s" : ""}`}</p>
+          <div className="section-head-actions">
+            {exportMsg && <span className="export-msg">{exportMsg}</span>}
+            <button className="btn-ghost" onClick={handleExport} disabled={exporting} title="Export all MCQs as JSON">
+              <FiUpload /> {exporting ? "Exporting..." : "Export All"}
+            </button>
+            <p className={`section-desc ${decksError ? "section-desc-error" : ""}`}>{decksError ? decksError : decksLoading ? "Loading..." : `${decks.length} deck${decks.length !== 1 ? "s" : ""}`}</p>
+          </div>
         </div>
         <div className="deck-grid" style={{ marginBottom: uncategorized.length > 0 ? "1rem" : 0 }}>
           {uncategorized.map((d) => renderCard(d))}
@@ -156,10 +190,10 @@ function MCQPage() {
           return (
             <FolderRow key={f.id} folder={f} itemCount={items.length} defaultOpen={items.length > 0}
               onRename={renameFolder} onDelete={deleteFolder}
-              onDropItem={(fid, dt) => { const mid = dt.getData("mcqId"); if (mid) moveToFolder(mid, fid); }}>
+              onAddItem={handleAddToFolder}>
               <div className="deck-grid deck-grid-compact">
-                {items.map((d) => renderCard(d))}
-                {items.length === 0 && <p className="folder-empty-hint">Drop MCQ decks here</p>}
+                {items.map((d) => renderCard(d, true))}
+                {items.length === 0 && <p className="folder-empty-hint">No decks yet &mdash; click + to add</p>}
               </div>
             </FolderRow>
           );

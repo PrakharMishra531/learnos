@@ -321,6 +321,22 @@ textarea:focus {
   font-size: 0.82rem;
 }
 
+.section-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.export-msg {
+  font-size: 0.78rem;
+  color: var(--accent);
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Prompt section */
 .homepage-prompt-section {
   margin-bottom: 3rem;
@@ -493,7 +509,6 @@ textarea:focus {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  cursor: text;
   padding: 0.15rem 0.25rem;
   margin: -0.15rem -0.25rem;
   border-radius: 4px;
@@ -1003,6 +1018,22 @@ textarea:focus {
   margin-top: 1rem;
 }
 
+.learnos-export {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+}
+
+.learnos-export-msg {
+  color: var(--accent);
+  font-size: 0.8rem;
+  text-align: center;
+  max-width: 480px;
+  word-break: break-all;
+}
+
 /* ======== FLASHCARDS PAGE ======== */
 
 .flashcards-page {
@@ -1468,42 +1499,38 @@ textarea:focus {
 }
 
 .folder-row {
+  background: var(--bg-surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   margin-bottom: 0.5rem;
   overflow: hidden;
-  transition: border-color var(--transition-smooth);
+  transition: all var(--transition-smooth);
 }
 
 .folder-row:hover {
-  border-color: var(--border-light);
+  border-color: var(--accent-dim);
+  background: var(--bg-hover);
 }
 
-.folder-drag-over {
-  border-color: var(--accent) !important;
-  background: var(--bg-accent-glow);
-  box-shadow: 0 0 12px var(--accent-glow);
+.folder-row-open {
+  border-color: var(--border-light);
 }
 
 .folder-header {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.6rem 0.75rem;
-  background: var(--bg-surface);
-  cursor: default;
-}
-
-.folder-toggle {
-  background: none;
-  color: var(--text-muted);
-  padding: 0.2rem;
-  flex-shrink: 0;
+  padding: 0.8rem 1rem;
   cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-.folder-toggle:hover {
-  color: var(--text-primary);
+.folder-chevron {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
 }
 
 .folder-icon {
@@ -1517,7 +1544,10 @@ textarea:focus {
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--text-heading);
-  cursor: text;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   padding: 0.1rem 0.25rem;
   margin: -0.1rem -0.25rem;
   border-radius: 4px;
@@ -1534,23 +1564,76 @@ textarea:focus {
   background: var(--bg-hover);
   padding: 0.1rem 0.45rem;
   border-radius: 10px;
+  flex-shrink: 0;
 }
 
-.folder-delete {
+.folder-add-btn {
   background: none;
   color: var(--text-muted);
   padding: 0.2rem;
   cursor: pointer;
+  flex-shrink: 0;
+  border-radius: 4px;
+  transition: all var(--transition-smooth);
   opacity: 0;
-  transition: opacity var(--transition-smooth);
 }
 
-.folder-row:hover .folder-delete {
+.folder-row:hover .folder-add-btn {
   opacity: 1;
 }
 
-.folder-delete:hover {
+.folder-add-btn:hover {
+  color: var(--accent);
+  background: var(--bg-accent-glow);
+}
+
+.folder-delete-btn {
+  background: none;
+  color: var(--text-muted);
+  padding: 0.2rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  border-radius: 4px;
+  transition: all var(--transition-smooth);
+  opacity: 0;
+}
+
+.folder-row:hover .folder-delete-btn {
+  opacity: 1;
+}
+
+.folder-delete-btn:hover {
   color: var(--red);
+}
+
+.folder-add-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.folder-add-input {
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.6rem;
+  outline: none;
+  flex: 1;
+  max-width: 220px;
+}
+
+.folder-add-input:focus {
+  border-color: var(--accent-dim);
+}
+
+.folder-add-error {
+  color: var(--red);
+  font-size: 0.75rem;
 }
 
 .folder-rename-input {
@@ -1567,7 +1650,8 @@ textarea:focus {
 }
 
 .folder-body {
-  padding: 0.5rem 0.75rem 0.75rem;
+  padding: 0.5rem 1rem 1rem;
+  border-top: 1px solid var(--border);
   min-height: 40px;
 }
 
@@ -1586,6 +1670,28 @@ textarea:focus {
   padding: 0.5rem 0;
   text-align: center;
   margin: 0;
+}
+
+.folder-item-remove {
+  background: none;
+  color: var(--text-muted);
+  padding: 0.15rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: all var(--transition-smooth);
+}
+
+.deck-card:hover .folder-item-remove {
+  opacity: 1;
+}
+
+.folder-item-remove:hover {
+  color: var(--red);
+  background: var(--bg-hover);
 }
 
 /* ======== NOTES SIDE PANEL ======== */
