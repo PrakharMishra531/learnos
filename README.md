@@ -100,4 +100,4 @@ src-tauri/
 
 ---
 
-- Harness used - opencode + deepseek v4 pro (43M tokens exhausted - 0.6$)
+- Harness used - opencode + deepseek v4 pro (66M tokens exhausted)
